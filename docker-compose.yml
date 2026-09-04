@@ -1,21 +1,16 @@
 version: '3.8'
-
 services:
   rag-app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: laser-focused-prod:latest
-    container_name: multilingual-rag
+    build: .
+    container_name: multilingual_rag_app
     environment:
-      # ホストマシンの環境変数をコンテナに渡す
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # Use .env file or system environment variables securely
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
     volumes:
       - ./data:/app/data
       - ./chroma_db:/app/chroma_db
-    # メモリとCPUに制限を設けて、古いPCでもフリーズしないよう最適化
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 1G
+    stdin_open: true # allows interactive shell (e.g. input())
+    tty: true
+    # Run the ingestion script on startup, then keep the container alive for app.py
+    command: >
+      bash -c "python ingest.py && python app.py"
