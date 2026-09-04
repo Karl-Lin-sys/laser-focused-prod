@@ -2,39 +2,51 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main ]
 
 jobs:
-  lint-and-test:
+  test-and-lint:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install flake8 pytest
-        pip install -r requirements.txt
-    - name: Lint with flake8
-      run: |
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-    - name: Run tests (Tokenizer Check)
-      run: |
-        pytest test_tokenizer.py
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest flake8
+
+      - name: Lint with flake8
+        run: |
+          # 構文エラーや未定義名がある場合はビルドを停止
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          # その他のエラーは警告として扱う (複雑度や文字数制限など)
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+      - name: Run Tokenization Pytest
+        run: |
+          pytest tests/
 
   build-docker:
-    needs: lint-and-test
+    needs: test-and-lint
     runs-on: ubuntu-latest
+    # テストとLintが成功した場合のみDockerイメージをビルドする
+    if: success()
     steps:
-    - uses: actions/checkout@v3
-    - name: Build the Docker image
-      # 成功した場合のみビルドが走ります（needs: lint-and-testの制約）
-      run: docker build . --file Dockerfile --tag multilingual-rag-app:latest
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Build Docker Image
+        run: |
+          docker build -t laser-focused-rag:latest .
+          # 本番環境ではここでGHCRやDocker Hubへプッシュします
+          # docker push myregistry/laser-focused-rag:latest

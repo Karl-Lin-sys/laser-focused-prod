@@ -1,8 +1,7 @@
-langchain
-langchain-community
-langchain-google-genai
-chromadb
-jieba
-janome
-pytest
-flake8
+langchain==0.1.16
+langchain-google-genai==1.0.3
+langchain-community==0.0.34
+faiss-cpu==1.8.0
+jieba==0.42.1
+janome==0.5.0
+python-dotenv==1.0.1
