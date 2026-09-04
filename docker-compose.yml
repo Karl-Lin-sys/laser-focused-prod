@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  rag-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: laser-focused-prod:latest
+    container_name: multilingual-rag
+    environment:
+      # ホストマシンの環境変数をコンテナに渡す
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - ./data:/app/data
+      - ./chroma_db:/app/chroma_db
+    # メモリとCPUに制限を設けて、古いPCでもフリーズしないよう最適化
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
