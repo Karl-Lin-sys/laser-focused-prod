@@ -1,34 +1,32 @@
-# Dockerfile - Multi-stage build for lightweight footprint
-
-# Stage 1: Builder
-FROM python:3.10-slim AS builder
+# マルチステージビルドを採用し、最終的なイメージサイズを極限まで小さくします
+FROM python:3.11-slim AS builder
 
 WORKDIR /app
+COPY requirements.txt .
 
-# Install system dependencies needed for compiling python packages (if any)
+# ビルド依存関係をインストールし、ユーザースペースにパッケージを配置
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --user --no-cache-dir -r requirements.txt
 
-COPY requirements.txt .
-# Create wheels to avoid bringing build dependencies into the final image
-RUN pip wheel --no-cache-dir --no-deps --wheel-dir /app/wheels -r requirements.txt
+# --- ランタイムステージ ---
+FROM python:3.11-slim AS runtime
 
-# Stage 2: Final runtime image
-FROM python:3.10-slim
+# メモリやCPUに制限がある古いノートPC向けの最適化設定
+# スレッド数を制限し、コンテキストスイッチのオーバーヘッドを減らす
+ENV OMP_NUM_THREADS=1
+ENV MKL_NUM_THREADS=1
+ENV OPENBLAS_NUM_THREADS=1
+ENV PYTHONUNBUFFERED=1
+ENV PATH=/root/.local/bin:$PATH
 
 WORKDIR /app
 
-# Copy wheels from builder and install
-COPY --from=builder /app/wheels /wheels
-COPY --from=builder /app/requirements.txt .
-RUN pip install --no-cache /wheels/* && rm -rf /wheels
+# ビルダーからインストール済みのパッケージのみをコピー (コンパイラ等は含まれないため軽量化される)
+COPY --from=builder /root/.local /root/.local
 
-# Copy application files
-COPY ingest.py app.py ./
+# アプリケーションコードのコピー
+COPY chunker.py ingest.py app.py ./
 
-# Create directories for volumes
-RUN mkdir -p /app/data /app/chroma_db
-
-# Default command (can be overridden to run ingest.py instead)
 CMD ["python", "app.py"]

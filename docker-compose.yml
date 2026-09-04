@@ -1,16 +1,20 @@
 version: '3.8'
+
 services:
   rag-app:
-    build: .
-    container_name: multilingual_rag_app
-    environment:
-      # Use .env file or system environment variables securely
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: laser-focused-rag:latest
+    container_name: rag_app
+    # 環境変数を安全に管理するため、.envファイルを読み込む
+    env_file:
+      - .env
     volumes:
-      - ./data:/app/data
-      - ./chroma_db:/app/chroma_db
-    stdin_open: true # allows interactive shell (e.g. input())
+      # ホスト側で生成したFAISSベクトルDBをコンテナ内にマウントし、
+      # コンテナ再起動時にデータが失われないようにする
+      - ./vectorstore:/app/vectorstore
+      - ./sample_data.txt:/app/sample_data.txt
+    # app.py をCLIとしてインタラクティブに実行するための設定
+    stdin_open: true
     tty: true
-    # Run the ingestion script on startup, then keep the container alive for app.py
-    command: >
-      bash -c "python ingest.py && python app.py"

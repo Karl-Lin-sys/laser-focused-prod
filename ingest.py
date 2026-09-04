@@ -1,84 +1,46 @@
 import os
-import jieba
-from janome.tokenizer import Tokenizer
-from langchain_community.document_loaders import DirectoryLoader, TextLoader
+from langchain_community.vectorstores import FAISS
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_community.vectorstores import Chroma
-from langchain.text_splitter import TextSplitter
+from chunker import MultilingualChunker
+from dotenv import load_dotenv
 
-class AsianLanguageTextSplitter(TextSplitter):
-    """
-    カスタムテキスト分割クラス。
-    英語のスペース区切りとは異なり、日本語や台湾華語の形態素を破壊しないよう、
-    専用のトークナイザ（Janome, Jieba）を用いて単語単位で分割し、文字数制約内でチャンク化します。
-    これにより検索精度（RAGの検索フェーズ）が向上します。
-    """
-    def __init__(self, language="ja", chunk_size=500, chunk_overlap=50, **kwargs):
-        super().__init__(chunk_size=chunk_size, chunk_overlap=chunk_overlap, **kwargs)
-        self.language = language
-        if language == "ja":
-            self.janome_tokenizer = Tokenizer()
+load_dotenv()
 
-    def split_text(self, text: str) -> list[str]:
-        # 言語ごとの形態素解析を用いたトークン化
-        if self.language == "zh-tw":
-            tokens = list(jieba.cut(text))
-        elif self.language == "ja":
-            tokens = [token.surface for token in self.janome_tokenizer.tokenize(text)]
-        else: # 英語など（スペース区切り）
-            tokens = text.split(" ")
+def ingest_data(file_path: str, index_path: str = "vectorstore"):
+    print(f"Loading data from {file_path}...")
+    with open(file_path, "r", encoding="utf-8") as f:
+        text = f.read()
 
-        chunks = []
-        current_chunk = []
-        current_length = 0
+    print("Chunking data...")
+    # カスタムチャンカーの適用（ここで言語に合わせた適切な形態素分割が行われる）
+    chunker = MultilingualChunker(chunk_size=500, chunk_overlap=50)
+    chunks = chunker.split_text(text)
 
-        # トークン（形態素）単位で文字数をカウントしチャンク化
-        for token in tokens:
-            token_len = len(token)
-            if current_length + token_len > self._chunk_size and current_chunk:
-                chunks.append("".join(current_chunk) if self.language != "en" else " ".join(current_chunk))
-                # オーバーラップの実装（簡易的に最後の数トークンを残すアプローチも可能ですが、
-                # 本実装では軽量化のためリセット方式を採用しています）
-                current_chunk = []
-                current_length = 0
-            
-            current_chunk.append(token)
-            current_length += token_len
+    from langchain.schema import Document
+    docs = [Document(page_content=chunk) for chunk in chunks]
 
-        if current_chunk:
-            chunks.append("".join(current_chunk) if self.language != "en" else " ".join(current_chunk))
-
-        return chunks
-
-def ingest_data():
-    data_dir = "./data"
-    if not os.path.exists(data_dir):
-        os.makedirs(data_dir)
-        print(f"{data_dir} directory created. Please put your .txt files here.")
-        return
-
-    # データの読み込み
-    loader = DirectoryLoader(data_dir, glob="**/*.txt", loader_cls=TextLoader)
-    documents = loader.load()
-
-    if not documents:
-        print("No documents found in ./data")
-        return
-
-    # ここでは例として日本語(ja)を指定。必要に応じて zh-tw や en に切り替え可能。
-    splitter = AsianLanguageTextSplitter(language="ja", chunk_size=500, chunk_overlap=50)
-    texts = splitter.split_documents(documents)
-
-    # Embeddingモデルの初期化（ローカルのメモリを圧迫しないようGemini APIを利用）
+    print("Generating embeddings and saving to FAISS...")
+    # 軽量でノートPCのリソースを圧迫しないよう、ローカルモデルではなくGeminiのEmbedding APIを使用
+    # ベクトルDBには非常に軽量でメモリ効率が良いFAISSを採用
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-
-    # 軽量なChromaDBに保存して永続化
-    vectorstore = Chroma.from_documents(
-        documents=texts, 
-        embedding=embeddings,
-        persist_directory="./chroma_db"
-    )
-    print("Ingestion completed successfully.")
+    
+    vectorstore = FAISS.from_documents(docs, embeddings)
+    vectorstore.save_local(index_path)
+    print(f"Ingestion complete. Index saved to {index_path}")
 
 if __name__ == "__main__":
-    ingest_data()
+    # サンプルデータの作成と取り込み
+    sample_text_path = "sample_data.txt"
+    if not os.path.exists(sample_text_path):
+        with open(sample_text_path, "w", encoding="utf-8") as f:
+            f.write(
+                "Artificial Intelligence is transforming the world and enabling new technologies in Canada. \n"
+                "人工知能は世界を変え、社会に新たな価値を提供しています。日本の技術力と融合することでさらなる発展が見込まれます。\n"
+                "人工智慧正在改變世界，並為台灣的半導體產業帶來前所未有的機遇與挑戰。"
+            )
+    
+    # APIキーが設定されているかチェック
+    if not os.getenv("GEMINI_API_KEY"):
+        print("Error: GEMINI_API_KEY is not set in .env file.")
+    else:
+        ingest_data(sample_text_path)
